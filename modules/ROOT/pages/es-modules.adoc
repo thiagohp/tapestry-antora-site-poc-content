@@ -1,0 +1,286 @@
+= ES Module Support
+:toc: auto
+
+== Introduction
+
+Since 5.10.0, Tapestry has added support to https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Modules[JavaScript modules], as defined by the ECMAScript standard version 6 and supported natively by browsers.
+These modules are also known as ES modules or ESM modules.
+
+NOTE: Notice JavaScript modules are referred in this documentation as "ES modules" to differentiate from the AMD/Require.js modules supported by Tapestry since version 5.4. 
+AMD and ES modules are different and incompatible with each other.
+
+There are 5 ways of interacting with Tapestry's ES module support:
+
+* `@Import` annotation and its `esModule` attribute.
+* `JavaScriptSupport` service and its `importEsModule()` and `addEsModuleConfigurationCallback` methods.
+* The `META-INF/assets/es-modules/` folder in the classpath.
+* Implementing  the `EsModuleConfigurationCallback` interface.
+* Contributions to the `EsModuleManager` service.
+
+They're going to be described in the upcoming sections.
+
+== Automatic definition of ES modules by file placement
+
+Any `.js` or `.mjs` file inside `META-INF/assets/es-modules/` in the classpath, or in its subfolders, is automatically picked up by Tapestry as an ES module with a module id based on the folder structure, with the file extension removed.
+For example, if there's a `META-INF/assets/es-modules/app/view/dashboard.js`
+file in the classpath, it's automatically recognized as the `app/view/dashboard` ES module.
+Tapestry automatically creates an https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Modules#importing_modules_using_import_maps[import map] and includes it in the HTML.
+
+== Basic usage
+
+Importing an ES module is straightforward. 
+
+The easier, but less customizable, method is through the `@Import` annotation and its `esModule` attribute, which receives a `String` array containing the ids of the modules to be imported. Examples:
+
+.Single module:
+[source,java]
+----
+@Import(esModule = "app/view/dashboard")
+----
+
+.Multiple modules:
+[source,java]
+----
+@Import(esModule = {"common", "app/view/dashboard"}))
+----
+
+Using `@Import`, the module(s) will always be imported.
+
+Dynamic imports can be done through `JavaScriptSupport.importJsModule()`:
+
+[source, java]
+----
+javaScriptSupport.importEsModule("foo/bar");
+----
+
+By default, the generated `<script type="module">` elements are placed in the bottom of the `<body>` element.
+
+`importJsModule()` returns an object, `EsModuleInitialization`, which provides a number of customizations that will be applied to the `<script type="module">` element that will be generated:
+
+* `withAttribute(String name, String value)`: defines an attribute.
+* `placement(ImportPlacement placement)`: defines where the element should go: `<head>`, top of `<body>` or bottom of `<body>` (default).
+* `invoke(String functionName)`: automatically calls a function exported by the ES module.
+* `with(Object... arguments)`: defines the parameters to be passed to the called function. If `invoke(String functionName)` was also called, the parameters go to the exported function with that name. If not, the default exported function is called.
+* `withDefer()`: sets the `defer` attribute.
+* `withAsync()`: sets the `async` attribute.
+
+Notice the `type` and `src` attributes cannot be overriden.
+Their values are set by Tapestry.
+
+Some examples:
+
+.Just importing a module
+[source, java]
+----
+javaScriptSupport.importEsModule("root-folder")
+----
+
+Generated element:
+[source,html]
+----
+<script src="[module URL]" type="module" 
+    data-module-id="root-folder"></script>
+----
+
+.Defining attributes on the `<script>` element
+[source, java]
+----
+javaScriptSupport.importEsModule("foo/bar")
+    .withDefer() // Adds the 'defer' attribute
+    .withAsync() // Adds the 'async' attribute
+    .withAttribute("foo") // adds 'foo="foo"'
+    .withAttribute("something", "else"); // adds 'something="else"'
+----
+
+Generated element:
+[source,html]
+----
+<script src="[module URL]" type="module" something="else" foo="foo"
+    defer="defer" async="async" data-module-id="foo/bar"></script>
+----
+
+.`<script>` placed inside <head>
+[source, java]
+----
+javaScriptSupport.importEsModule("bar/foo")
+    .placement(ImportPlacement.HEAD);
+----
+
+.Importing a module and calling an exported function.
+[source, java]
+----
+javaScriptSupport.importEsModule("non-default-export")
+    .invoke("init"); 
+----
+
+This creates two <script> elements: one for importing the module, the other uses the module and calls its `init`` exported function without parameters.
+Generated elements:
+
+[source,html]
+----
+<script src="[module URL]" type="module" 
+    data-module-id="non-default-export"></script>
+<script type="module">
+    import { init } from 'non-default-export';
+    init();
+</script>
+----
+
+.Importing a module and calling its default exported function with 2 parameters, a JSON object and an array.
+[source,java]
+----
+javaScriptSupport.importEsModule("parameter-type-default-export")
+    .with(new JSONObject("key", "value"), new JSONArray(1, "2"));
+----
+
+Generated elements:
+
+[source,html]
+----
+<script src="[module URL]" type="module"
+     data-module-id="parameterless-default-export"></script>
+<script type="module">
+     import m from 'parameter-type-default-export';
+     m({ "key" : "value"}, [1,"2"]);
+</script>
+----
+
+.Combining `invoke()` and `with()` to pass parameters to the named exported function.
+[source,java]
+----
+javaScriptSupport.importEsModule("non-default-export")
+    .invoke("setMessage")
+    .with("foo");
+----
+
+Generated elements:
+[source,html]
+----
+<script src="[module URL]" type="module"
+     data-module-id="parameterless-default-export"></script>
+<script type="module">
+    import { setMessage } from 'non-default-export';
+    setMessage('foo');
+</script>
+----
+
+.`with()` can be used without any parameters to call a function without parameters
+[source,java]
+----
+javaScriptSupport.importEsModule("parameterless-default-export")
+    .with();
+----
+
+Generated elements:
+[source,html]
+----
+<script data-module-id="parameterless-default-export" 
+    src="[module URL]" type="module"></script>
+<script type="module">
+    import m from 'parameterless-default-export';
+    m();
+</script>
+----
+
+== Generating the import map
+
+Tapestry's ES module support, implemented in the `EsModuleManager` service, contains a registry of known modules, mapping module ids to their URLs. It's built during the webapp's startup process and used to create a base import map. 
+
+During the processing of a request, the base import map is cloned and then offered to be customized by Tapestry-user-provided code.
+
+After customization is done, the resulting import map is used to automatically generate an `<script type="importmap">{"imports:" {...}}` element inside `<head>`.
+
+NOTE: When production mode is off, when any asset is changed, the base import map is thrown away and and the whole process to build it is run again so ES modules can be live reloaded.
+
+== Customizing the import map (including defining ES modules programatically)
+
+When it's not possible (for example, ES modules from external URLs) or desireable to include the ES module in the `META-INF/assets/es-modules/` folder in the classpath, it's possible to define ES modules through callbacks. 
+They can be also used when some module only needs to be added to the import in specific requests.
+
+=== `EsModuleConfigurationCallback`
+
+The `EsModuleConfigurationCallback` interface defines callbacks and is implemented when the Tapestry user needs to customize the import map in any way they may need. 
+Implementations must implement the `void configure(JSONObject configuration)` method, where `configuration` is the `org.apache.tapestry5.json.JSONObject` instance representing the import map.
+The interface also provides the `setImport(JSONObject object, String id, String url)` static utility method to make it easier to add or change (module id, module URL) pairs.
+
+The import map customization has 3 steps:
+
+. Base import map creation. Base callbacks are called.
+. During a request, request-specific callbacks are called.
+. During a request, global per-request callbacks are called (global per-request callbacks).
+
+=== Base callbacks
+
+Base callbacks are executed after adding all the automatic ES modules inside `META-INF/assets/es-modules/` were added to the base import map object. 
+
+They are registered through contributions to the `EsModuleManager` service.
+Here's one example that defines the `app/external/math` module with the `https://example.com/js/math.js` URL:
+
+[source,java]
+----
+import static org.apache.tapestry5.services.javascript.EsModuleConfigurationCallback.*;
+
+public static void contributeEsModuleManager( <1>
+    OrderedConfiguration<EsModuleManagerContribution> configuration) {
+
+    // This callback defines a single module, but it could be any 
+    // number of them.
+    EsModuleConfigurationCallback callback =
+        o -> setImport(o, "app/external/math", "https://example.com/js/math.js");
+
+    // The toBaseContribution method contributes this callback
+    // as a base one.
+    configuration.add("ExternalMath", toBaseContribution(callback));
+
+}
+----
+<1> This method should bgo inside `AppModule` or another Tapestry-IoC module.
+
+=== Request-specific callbacks
+
+For request-specific scenarios in which the import map needs to be customized, request-specific callbacks are registered through `JavaScriptSupport.addEsModuleConfigurationCallback()`.
+They're invoked receiving a clone of the base import map and they're not kept between requests.
+
+Here's one example that defines the `app/external/string` module with the `https://example.com/js/string.js` URL:
+
+[source,java]
+----
+import static org.apache.tapestry5.services.javascript.EsModuleConfigurationCallback.*;
+
+void afterRender() { <1>
+    // This callback defines a single module, but it could be any 
+    // number of them.
+    EsModuleConfigurationCallback callback =
+        o -> setImport(o, "app/external/math", "https://example.com/js/math.js");
+
+    javaScriptSupport.addEsModuleConfigurationCallback(callback); <2>
+}
+----
+<1> This method should go inside a Tapestry component, page, mixin or base class.
+<2> Any number of request callbacks can be added in a request.
+
+=== Global per-request callbacks
+
+After request-specific callbacks are called, global per-request callbacks are executed. 
+They're contributed in a similar way as base ones, but using the `toGlobalPerRequestContribution()` method instead of `toBaseContribution()`.
+
+Here's one example that defines the `app/external/canvas` module with the `https://example.com/js/canvas.js` URL:
+
+[source,java]
+----
+import static org.apache.tapestry5.services.javascript.EsModuleConfigurationCallback.*;
+
+public static void contributeEsModuleManager(
+    OrderedConfiguration<EsModuleManagerContribution> configuration) {
+
+    // This callback defines a single module, but it could be any 
+    // number of them.
+    EsModuleConfigurationCallback callback =
+        o -> setImport(o, "app/external/canvas", "https://example.com/js/canvas.js");
+
+    // The toGlobalPerRequestContribution method contributes this callback
+    // as a global per-request one.
+    configuration.add("ExternalCanvas", toGlobalPerRequestContribution(callback));
+
+}
+----
