@@ -230,7 +230,7 @@ public static void contributeEsModuleManager( <1>
 
     // The toBaseContribution method contributes this callback
     // as a base one.
-    configuration.add("ExternalMath", toBaseContribution(callback));
+    configuration.add("ExternalMath", base(callback));
 
 }
 ----
@@ -280,7 +280,7 @@ public static void contributeEsModuleManager(
 
     // The toGlobalPerRequestContribution method contributes this callback
     // as a global per-request one.
-    configuration.add("ExternalCanvas", toGlobalPerRequestContribution(callback));
+    configuration.add("ExternalCanvas", globalPerRequest(callback));
 
 }
 ----
