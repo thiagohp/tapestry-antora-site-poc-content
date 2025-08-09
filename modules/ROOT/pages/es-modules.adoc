@@ -19,6 +19,15 @@ There are 5 ways of interacting with Tapestry's ES module support:
 
 They're going to be described in the upcoming sections.
 
+== Require.js mode (i.e. Require.js disabled)
+
+Tapestry 5.10.0 introduces the `tapestry.require-js-enabled` symbol (`SymbolConstants.REQUIRE_JS_ENABLED`), 
+with a default value of `true`. It defines whether Require.js (`true`) or the browser support for ES modules (`false`) will
+be used by Tapestry to manage modules. When Require.js mode is on, you can still use ES modules, but the
+Tapestry-provided modules will be provided in their AMD/Require.js version. When require.js mode is off,
+Tapestry-provided modules will be provided in their ES module version and
+attempts to import an AMD/Require.js module will result in an exception.
+
 == Automatic definition of ES modules by file placement
 
 Any `.js` or `.mjs` file inside `META-INF/assets/es-modules/` in the classpath, or in its subfolders, is automatically picked up by Tapestry as an ES module with a module id based on the folder structure, with the file extension removed.
